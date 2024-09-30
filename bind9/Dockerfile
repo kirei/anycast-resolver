@@ -1,6 +1,6 @@
 FROM docker.io/fedora:40
 
-RUN dnf -y update && dnf -y install bind9-next bind9-next-utils openssl
+RUN dnf -y update && dnf -y install bind9-next bind9-next-utils
 
 ADD entrypoint.sh /
 
