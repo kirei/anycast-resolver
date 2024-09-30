@@ -48,6 +48,16 @@ services:
       - source: bind9-socat.sh
         target: /etc/named/startup-hook.sh
 
+  exabgp:
+    image: exabgp
+    pull_policy: never
+    networks:
+      internal:
+        ipv4_address: 10.53.0.2
+    build:
+      context: exabgp
+      dockerfile: Dockerfile
+
   dnscollector:
     image: dmachard/go-dnscollector
     networks:
