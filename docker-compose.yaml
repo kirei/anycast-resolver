@@ -1,7 +1,21 @@
+networks:
+  internal:
+    ipam:
+      driver: default
+      config:
+        - subnet: "10.53.0.0/24"
+
+volumes:
+  dnscollector:
+  prometheus:
+
 services:
   unbound:
     image: unbound
-    restart: unless-stopped
+    pull_policy: never
+    networks:
+      internal:
+        ipv4_address: 10.53.0.10
     ports:
       - "53:53/udp"
       - "53:53/tcp"
@@ -10,10 +24,16 @@ services:
     build:
       context: unbound
       dockerfile: Dockerfile
+    configs:
+      - source: unbound-dnstap.conf
+        target: /etc/unbound/conf.d/dnstap.conf
 
   bind9:
     image: bind9
-    restart: unless-stopped
+    pull_policy: never
+    networks:
+      internal:
+        ipv4_address: 10.53.0.10
     ports:
       - "53:53/udp"
       - "53:53/tcp"
@@ -22,3 +42,107 @@ services:
     build:
       context: bind9
       dockerfile: Dockerfile
+    configs:
+      - source: bind9-dnstap.conf
+        target: /etc/named/local.d/dnstap.conf
+      - source: bind9-socat.sh
+        target: /etc/named/startup-hook.sh
+
+  dnscollector:
+    image: dmachard/go-dnscollector
+    networks:
+      internal:
+        ipv4_address: 10.53.0.11
+    environment:
+      - "TZ=Europe/Stockholm"
+    volumes:
+      - dnscollector:/var/dnscollector/
+    ports:
+      - "6000:6000/tcp"
+      - "8080:8080/tcp"
+      - "8081:8081/tcp"
+    configs:
+      - source: dnscollector.yaml
+        target: /etc/dnscollector/config.yml
+
+  prometheus:
+    # http://127.0.0.1:9090
+    image: prom/prometheus:latest
+    networks:
+      internal:
+        ipv4_address: 10.53.0.12
+    volumes:
+      - prometheus:/prometheus
+    ports:
+      - "9090:9090"
+    configs:
+      - source: prometheus.yaml
+        target: /etc/prometheus/prometheus.yml
+
+configs:
+  unbound-dnstap.conf:
+    content: |
+      dnstap:
+        dnstap-enable: yes
+        dnstap-ip: 10.53.0.11@6000
+        dnstap-tls: no
+        dnstap-log-client-query-messages: yes
+        dnstap-log-client-response-messages: yes
+        dnstap-send-identity: yes
+        dnstap-send-version: yes
+
+  bind9-dnstap.conf:
+    content: |
+      dnstap-output unix "/var/run/named-dnstap.sock";
+      dnstap { auth; client response; resolver query; };
+
+  bind9-socat.sh:
+    content: |
+      socat -ls -v UNIX-LISTEN:/var/run/named-dnstap.sock,mode=777,reuseaddr,fork TCP4-CONNECT:10.53.0.11:6000 &
+
+  dnscollector.yaml:
+    content: |
+      global:
+        trace:
+          verbose: true
+          log-malformed: true
+      multiplexer:
+        collectors:
+          - name: tap
+            dnstap:
+              listen-ip: 0.0.0.0
+              listen-port: 6000
+            transforms:
+              normalize:
+                qname-lowercase: true
+                add-tld: true
+              suspicious:
+                enable: true
+        loggers:
+          - name: console
+            stdout:
+              mode: text
+          - name: json
+            logfile:
+              file-path:  /var/dnscollector/dnstap.log 
+              mode: text
+          - name: api
+            restapi:
+              listen-ip: 0.0.0.0
+              listen-port: 8080
+          - name: prom
+            prometheus:
+              listen-ip: 0.0.0.0
+              listen-port: 8081
+              basic-auth-enable: false
+        routes:
+          - from: [ tap ]
+            to: [ console, json, api, prom ]
+
+  prometheus.yaml:
+    content: |
+      scrape_configs:
+        - job_name: 'dnscollector'
+          scrape_interval: 10s
+          static_configs:
+            - targets: ['dnscollector:8081']
