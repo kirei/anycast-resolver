@@ -27,6 +27,8 @@ services:
     configs:
       - source: unbound-dnstap.conf
         target: /etc/unbound/conf.d/dnstap.conf
+      - source: unbound-access.conf
+        target: /etc/unbound/local.d/access.conf
 
   bind9:
     image: bind9
@@ -100,6 +102,11 @@ configs:
         dnstap-log-client-response-messages: yes
         dnstap-send-identity: yes
         dnstap-send-version: yes
+
+  unbound-access.conf:
+    content: |
+      access-control: 0.0.0.0/0 allow
+      access-control: ::/0 allow
 
   bind9-dnstap.conf:
     content: |
