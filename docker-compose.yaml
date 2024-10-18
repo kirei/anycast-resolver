@@ -141,7 +141,7 @@ configs:
               mode: text
           - name: json
             logfile:
-              file-path:  /var/dnscollector/dnstap.log 
+              file-path: /var/dnscollector/dnstap.log
               mode: text
           - name: api
             restapi:
